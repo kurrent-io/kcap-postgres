@@ -49,7 +49,7 @@ expect_eq "extensions" "$(sql "SELECT string_agg(extname, ',' ORDER BY extname) 
 expect_eq "timezone" "$(sql "SHOW timezone")" "UTC"
 
 sql "CREATE TABLE vec (id int PRIMARY KEY, embedding vector(1024));
-     INSERT INTO vec SELECT i, (SELECT array_agg(random() + i * 0)::real[] FROM generate_series(1, 1024))::vector
+     INSERT INTO vec SELECT i, (SELECT array_agg(random())::real[] FROM generate_series(1, 1024) WHERE i IS NOT NULL)::vector
        FROM generate_series(1, 200) i;
      CREATE INDEX vec_hnsw ON vec USING hnsw (embedding vector_cosine_ops);"
 expect "hnsw plan" "$(sql "SET enable_seqscan = off; EXPLAIN (COSTS OFF)

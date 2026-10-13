@@ -1,0 +1,74 @@
+name: build
+
+on:
+  workflow_call:
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash scripts/build.sh osx-arm64 out
+      - uses: actions/upload-artifact@v7
+        with:
+          name: kcap-postgres-osx-arm64
+          path: out/*.tar.gz
+          if-no-files-found: error
+
+  build-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64, runner: ubuntu-24.04, image: quay.io/pypa/manylinux_2_28_x86_64 }
+          - { rid: linux-arm64, runner: ubuntu-24.04-arm, image: quay.io/pypa/manylinux_2_28_aarch64 }
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash scripts/install-build-deps.sh
+      - run: bash scripts/build.sh ${{ matrix.rid }} out
+      - uses: actions/upload-artifact@v7
+        with:
+          name: kcap-postgres-${{ matrix.rid }}
+          path: out/*.tar.gz
+          if-no-files-found: error
+
+  # Smoke runs on a fresh machine, never the one that built the archive.
+  smoke-macos:
+    needs: build-macos
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: kcap-postgres-osx-arm64
+          path: out
+      - run: bash scripts/smoke.sh out/*.tar.gz
+
+  smoke-linux:
+    needs: build-linux
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64, runner: ubuntu-24.04 }
+          - { rid: linux-arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: kcap-postgres-${{ matrix.rid }}
+          path: out
+      - name: Smoke on the runner
+        run: bash scripts/smoke.sh out/*.tar.gz
+      - name: Smoke on a bare Debian 11
+        run: |
+          archive=$(basename out/*.tar.gz)
+          docker run --rm -v "$PWD:/w:ro" debian:11-slim \
+            bash -c "useradd -m pg && su pg -c 'bash /w/scripts/smoke.sh /w/out/$archive'"

@@ -1,0 +1,44 @@
+name: release
+
+on:
+  push:
+    tags: ['[0-9]*-[0-9]*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag matches versions.env
+        run: |
+          source versions.env
+          [ "$GITHUB_REF_NAME" = "$PG_VERSION-$PACKAGE_REVISION" ] \
+            || { echo "tag $GITHUB_REF_NAME is not $PG_VERSION-$PACKAGE_REVISION from versions.env"; exit 1; }
+      - uses: actions/download-artifact@v8
+        with:
+          path: out
+          pattern: kcap-postgres-*
+          merge-multiple: true
+      - name: Checksums
+        run: cd out && sha256sum ./*.tar.gz | sed 's| \./| |' | tee SHA256SUMS && [ "$(wc -l < SHA256SUMS)" -eq 3 ]
+      # Downstream pins an archive by digest, so a release is written once. A re-run after a failure
+      # before the upload finds no assets and carries on.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source versions.env
+          if gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length' 2>/dev/null | grep -qv '^0$'; then
+            echo "release $GITHUB_REF_NAME already has assets; cut a new PACKAGE_REVISION instead"; exit 1
+          fi
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
+                 --notes "Postgres $PG_VERSION with pgvector $PGVECTOR_VERSION and pg_trgm."
+          gh release upload "$GITHUB_REF_NAME" out/*.tar.gz out/SHA256SUMS

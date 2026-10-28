@@ -27,7 +27,7 @@ jobs:
           pattern: kcap-postgres-*
           merge-multiple: true
       - name: Checksums
-        run: cd out && sha256sum ./*.tar.gz | sed 's| \./| |' | tee SHA256SUMS && [ "$(wc -l < SHA256SUMS)" -eq 3 ]
+        run: cd out && sha256sum ./*.tar.gz | sed 's| \./| |' | tee SHA256SUMS && [ "$(wc -l < SHA256SUMS)" -eq 4 ]
       # Downstream pins an archive by digest, so a release is written once. A re-run after a failure
       # before the upload finds no assets and carries on.
       - name: Publish

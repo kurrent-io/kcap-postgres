@@ -11,6 +11,7 @@ It is a build input for Capacitor's server bundle, which signs it and ships it. 
 | `osx-arm64` | `macos-15` | macOS 15 or later, Apple silicon |
 | `linux-x64` | `manylinux_2_28` | glibc 2.28 or later (RHEL 8, Debian 10, Ubuntu 18.10 and later) |
 | `linux-arm64` | `manylinux_2_28` | the same, on aarch64 |
+| `win-x64` | `windows-2025`, MSVC | Windows 10 version 1809 or later, Windows Server 2019 or later |
 
 ## What is in an archive
 
@@ -21,9 +22,11 @@ It is a build input for Capacitor's server bundle, which signs it and ships it. 
 * `share/`: catalog files, extension scripts, Postgres's own timezone data, and the PostgreSQL and pgvector licences under `share/licenses/`.
 * `kcap-postgres.json`: the versions, the pgvector commit, the configure flags and the CI run that built it.
 
+On Windows the programs are `.exe` files, the modules in `lib/` are DLLs, and `bin/` also holds `libpq.dll` and the parts of the VC++ runtime the programs import (`vcruntime140.dll`).
+
 Every release also has a `SHA256SUMS` covering its archives.
 
-The build leaves out ICU, libxml2, OpenSSL, readline, LLVM, GSSAPI and LDAP, because the server uses none of them. The archive depends only on the C library and zlib from the operating system. `scripts/check-deps.sh` enforces that on every build.
+The build leaves out ICU, libxml2, OpenSSL, readline, LLVM, GSSAPI and LDAP, because the server uses none of them. On macOS and Linux the archive depends only on the C library and zlib from the operating system. Windows has no system zlib, so `win-x64` links zlib in. It carries its own VC++ runtime, so it needs no redistributable installed and no administrator rights, and depends only on Windows's own DLLs, the Universal C Runtime among them. `scripts/check-deps.sh` enforces this on every build.
 
 ## Running it
 
@@ -42,7 +45,7 @@ EOF
 bin/pg_ctl -D data -l postgres.log -w start
 ```
 
-Postgres refuses to run as root. A unix socket path is limited to 104 bytes on macOS and 108 on Linux.
+Postgres refuses to run as root, or on Windows with administrator rights enabled; `pg_ctl` and `initdb` drop those rights themselves, `postgres` does not. A unix socket path is limited to 104 bytes on macOS and 108 on Linux and Windows.
 
 ## Building
 
@@ -52,7 +55,14 @@ bash scripts/build-in-container.sh linux-arm64 out  # with Docker; linux-x64 run
 bash scripts/smoke.sh out/kcap-postgres-*-osx-arm64.tar.gz
 ```
 
-`build.sh` verifies the Postgres source digest and the pgvector commit from `versions.env` before building, and runs `check-deps.sh` on the result.
+`win-x64` builds in Git Bash with Visual Studio's x64 environment loaded (`vcvars64.bat`), Strawberry Perl, `meson`, `ninja` and `win_bison`/`win_flex` (winflexbison) on `PATH`:
+
+```bat
+call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+"C:\Program Files\Git\bin\bash.exe" scripts/build.sh win-x64 out
+```
+
+`build.sh` verifies the Postgres source digest, the pgvector commit and, on Windows, the zlib digest from `versions.env` before building, and runs `check-deps.sh` on the result.
 
 ## Releasing
 

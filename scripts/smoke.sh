@@ -9,6 +9,9 @@ archive=$(cd "$(dirname "${1:?usage: smoke.sh <archive.tar.gz>}")" && pwd)/$(bas
 
 # /tmp, not $TMPDIR: macOS's $TMPDIR is long enough to push the socket path past its 104-byte limit.
 root=$(mktemp -d "/tmp/kcap pg smoke.XXXXXX")
+# In Git Bash, Postgres reads paths from postgresql.conf as Windows paths, so use the C:/ form throughout.
+windows=
+if command -v cygpath >/dev/null; then root=$(cygpath -m "$root") windows=1; fi
 pg="$root/install dir"
 data="$root/data"
 run="$root/run dir"
@@ -21,7 +24,9 @@ stop() {
 }
 trap stop EXIT
 
-mkdir -p "$pg" && mkdir -m 700 "$run"
+mkdir -p "$pg" "$run"
+# Windows has no mode bits; the socket directory inherits its ACL.
+[[ -n $windows ]] || chmod 700 "$run"
 tar -xzf "$archive" -C "$pg"
 
 build_prefix=$(sed -n 's/.*"build_prefix": *"\([^"]*\)".*/\1/p' "$pg/kcap-postgres.json")

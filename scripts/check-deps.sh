@@ -38,10 +38,23 @@ check_macos() {
     codesign -v "$f" 2>/dev/null || fail "${f#"$root"/} has no valid signature"
 }
 
+# Windows: a DLL the archive carries in bin/ (libpq, the VC++ runtime), the UCRT or one of Windows's own.
+check_windows() {
+    local f=$1 dep deps
+    [[ $f == *.exe || $f == *.dll ]] || return 0
+    deps=$(dumpbin -nologo -dependents "$(cygpath -w "$f")") || { fail "${f#"$root"/} could not be read by dumpbin"; return 0; }
+    while read -r dep; do
+        [[ -e $root/bin/$dep ]] && continue
+        [[ $dep =~ ^(api-ms-win-crt-[a-z0-9-]+|kernel32|advapi32|ws2_32|secur32|shell32|user32|wldap32|bcrypt|crypt32|userenv)\.dll$ ]] \
+            || fail "${f#"$root"/} needs $dep"
+    done < <(awk 'NF == 1 && tolower($1) ~ /\.(dll|exe)$/ {print tolower($1)}' <<<"$deps")
+}
+
 MIN_MACOS=$(sed -n 's/^MACOSX_DEPLOYMENT_TARGET=//p' "$(dirname "$0")/../versions.env")
 case "$(uname -s)" in
     Linux) checker=check_linux ;;
     Darwin) checker=check_macos ;;
+    MINGW*|MSYS*) checker=check_windows ;;
     *) echo "check-deps: unsupported OS $(uname -s)" >&2; exit 2 ;;
 esac
 while IFS= read -r -d '' f; do "$checker" "$f"; done < <(find "$root/bin" "$root/lib" -type f -print0)

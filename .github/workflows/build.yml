@@ -36,6 +36,28 @@ jobs:
           path: out/*.tar.gz
           if-no-files-found: error
 
+  build-windows:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build tools
+        shell: pwsh
+        run: |
+          choco install winflexbison3 --no-progress -y
+          python -m pip install --quiet meson ninja
+          python -c "import sysconfig; print(sysconfig.get_path('scripts'))" >> $env:GITHUB_PATH
+      - name: Build
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          "%ProgramFiles%\Git\bin\bash.exe" scripts/build.sh win-x64 out
+      - uses: actions/upload-artifact@v7
+        with:
+          name: kcap-postgres-win-x64
+          path: out/*.tar.gz
+          if-no-files-found: error
+
   # Smoke runs on a fresh machine, never the one that built the archive.
   smoke-macos:
     needs: build-macos
@@ -72,3 +94,25 @@ jobs:
           archive=$(basename out/*.tar.gz)
           docker run --rm -v "$PWD:/w:ro" debian:11-slim \
             bash -c "useradd -m pg && su pg -c 'bash /w/scripts/smoke.sh /w/out/$archive'"
+
+  smoke-windows:
+    needs: build-windows
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: kcap-postgres-win-x64
+          path: out
+      - name: Smoke on the runner
+        shell: bash
+        run: bash scripts/smoke.sh out/*.tar.gz
+      # The runner has the VC++ runtime installed; Server Core does not, so only the archive's own copy can serve.
+      - name: Smoke on a bare Windows Server Core
+        shell: pwsh
+        run: |
+          $archive = (Get-ChildItem out/*.tar.gz).Name
+          docker run --rm -v "${PWD}:C:\w:ro" -v "${env:ProgramFiles}\Git:C:\git:ro" mcr.microsoft.com/windows/servercore:ltsc2025 `
+            cmd /c "if exist C:\Windows\System32\vcruntime140.dll (echo the image has the VC++ runtime installed & exit /b 1) else C:\git\bin\bash.exe /c/w/scripts/smoke.sh /c/w/out/$archive"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }

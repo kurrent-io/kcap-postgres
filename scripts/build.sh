@@ -63,7 +63,11 @@ if [[ $rid == win-* ]]; then
     # Of contrib, only pg_trgm, as the make build does.
     sed -i "/^subdir('/{/^subdir('pg_trgm')/!d}" "$src/contrib/meson.build"
     # The build's perl scripts pass /-style flags to MSVC tools, which Git Bash's own perl rewrites as paths.
-    perl=$(type -ap perl | grep -v '^/usr/' | head -1 || true)
+    # Asked, not judged by path: on a runner Git's perl is on PATH as /c/Program Files/Git/usr/bin.
+    perl=
+    while read -r p; do
+        if "$p" -e 'exit($^O eq "MSWin32" ? 0 : 1)'; then perl=$p; break; fi
+    done < <(type -ap perl)
     [[ -n $perl ]] || { echo "build: needs a native Windows perl such as Strawberry Perl on PATH" >&2; exit 2; }
     flags=(--buildtype=release -Dauto_features=disabled -Dzlib=enabled -Dssl=none -Duuid=none)
     meson setup "$work/build" "$src" --prefix="$(cygpath -w "$prefix")" "${flags[@]}" -DPERL="$(cygpath -w "$perl")" >"$work/configure.log" \
